@@ -461,7 +461,8 @@ static msg_t comp_read_raw(void *ip, int32_t axes[]) {
   uint8_t buff [LSM303DLHC_COMP_NUMBER_OF_AXES * 2], i;
   int16_t tmp;
   msg_t msg;
-
+  int32_t swap;
+  
   osalDbgCheck((ip != NULL) && (axes != NULL));
 
   /* Getting parent instance pointer.*/
@@ -477,19 +478,30 @@ static msg_t comp_read_raw(void *ip, int32_t axes[]) {
   i2cStart(devp->config->i2cp,
            devp->config->i2ccfg);
 #endif /* LSM303DLHC_SHARED_I2C */
+  /* msg = lsm303dlhcI2CReadRegister(devp->config->i2cp, LSM303DLHC_SAD_COMP, */
+  /*                                 LSM303DLHC_AD_COMP_OUT_X_L, buff, */
+  /*                                 LSM303DLHC_COMP_NUMBER_OF_AXES * 2); */
+
   msg = lsm303dlhcI2CReadRegister(devp->config->i2cp, LSM303DLHC_SAD_COMP,
-                                  LSM303DLHC_AD_COMP_OUT_X_L, buff,
+                                  LSM303DLHC_AD_COMP_OUT_X_H, buff,
                                   LSM303DLHC_COMP_NUMBER_OF_AXES * 2);
+
 
 #if LSM303DLHC_SHARED_I2C
   i2cReleaseBus(devp->config->i2cp);
 #endif /* LSM303DLHC_SHARED_I2C */
 
-  if(msg == MSG_OK)
+  if(msg == MSG_OK) {
     for(i = 0; i < LSM303DLHC_COMP_NUMBER_OF_AXES; i++) {
-      tmp = buff[2 * i] + (buff[2 * i + 1] << 8);
+      tmp = (buff[2 * i] << 8) + (buff[2 * i + 1] );
       axes[i] = (int32_t)tmp;
     }
+    // swap z and y axis - they arrive from the chip in x,z,y order rather than x,y,z that rest
+    // of code expects. Especially cooked mode that has a different sensitivity for Z. 
+    swap = axes[1];
+    axes[1] = axes[2];
+    axes[2] = swap;
+  }
   return msg;
 }
 
@@ -510,6 +522,7 @@ static msg_t comp_read_raw(void *ip, int32_t axes[]) {
  *                      be retrieved using @p i2cGetErrors().
  * @retval MSG_TIMEOUT  if a timeout occurred before operation end.
  */
+
 static msg_t comp_read_cooked(void *ip, float axes[]) {
   LSM303DLHCDriver* devp;
   uint32_t i;
